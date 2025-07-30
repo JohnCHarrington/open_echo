@@ -45,10 +45,10 @@ def read_packet(ser):
         if header != b'\xAA':
             continue  # Wait for the start byte
 
-        payload = ser.read(6 + 2 * NUM_SAMPLES)
+        payload = ser.read(8 + 2 * NUM_SAMPLES)
         checksum = ser.read(1)
 
-        if len(payload) != 6 + 2 * NUM_SAMPLES or len(checksum) != 1:
+        if len(payload) != 8 + 2 * NUM_SAMPLES or len(checksum) != 1:
             continue  # Incomplete packet
 
         # Verify checksum
@@ -60,18 +60,19 @@ def read_packet(ser):
             continue
 
         # Unpack payload
-        depth, temp_scaled, vDrv_scaled = struct.unpack(">HhH", payload[:6])
+        depth, temp_scaled, vDrv_scaled, res_scaled = struct.unpack(">HhHh", payload[:8])
         depth = min(depth, NUM_SAMPLES)
 
         # print(depth)
 
-        samples = struct.unpack(f">{NUM_SAMPLES}H", payload[6:])
+        samples = struct.unpack(f">{NUM_SAMPLES}H", payload[8:])
 
         temperature = temp_scaled / 100.0
         drive_voltage = vDrv_scaled / 100.0
+        resolution = res_scaled / 100.0
         values = np.array(samples)
 
-        return values, depth, temperature, drive_voltage
+        return values, depth, temperature, drive_voltage, resolution
 
 def generate_dbt_sentence(depth_cm):
     depth_m = depth_cm / 100.0
@@ -107,7 +108,7 @@ def get_local_ip():
 
 class SerialReader(QThread):
     """Thread for reading serial data asynchronously."""
-    data_received = pyqtSignal(np.ndarray, float, float, float)  # Emit NumPy array and depth value
+    data_received = pyqtSignal(np.ndarray, float, float, float, float)  # Emit NumPy array and depth value
 
     def __init__(self, port, baud_rate):
         super().__init__()
@@ -123,11 +124,11 @@ class SerialReader(QThread):
                 while self.running:
                     result = read_packet(ser)
                     if result:
-                        values, depth, temperature, drive_voltage = result
+                        values, depth, temperature, drive_voltage, resolution = result
                         # print(f"Depth: {depth}, Temp: {temperature}°C, Vdrv: {drive_voltage}V")
                         # print(len(values))
 
-                        self.data_received.emit(values, depth, temperature, drive_voltage)
+                        self.data_received.emit(values, depth, temperature, drive_voltage, resolution)
         except serial.SerialException as e:
             print(f"❌ Serial Error: {e}")
 
@@ -535,7 +536,7 @@ class WaterfallApp(QMainWindow):
         else:
             print("⚠️ No active serial connection to disconnect")
 
-    def waterfall_plot_callback(self, spectrogram, depth_index, temperature, drive_voltage):
+    def waterfall_plot_callback(self, spectrogram, depth_index, temperature, drive_voltage, resolution):
         self.data = np.roll(self.data, -1, axis=0)
         self.data[-1, :] = spectrogram
         self.imageitem.setImage(self.data.T, autoLevels=False)

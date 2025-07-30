@@ -8,6 +8,10 @@ const int O3 = 3;
 const int O4 = 2;
 const int analogIn = A0;
 
+
+// Feature Flags
+#define ENABLE_DYNAMIC_RESOLUTION false // EXPERIMENTAL, may not work as expected
+
 // Number of ADC samples to take per measurement cycle
 // Each sample takes approximately 13.2 microseconds
 // This value must match the number of samples expected by the Python visualization tool
@@ -19,7 +23,7 @@ const int analogIn = A0;
 
 // Threshold level for detecting the bottom echo
 // The first echo stronger than this value (after the blind zone) is considered the bottom
-#define THRESHOLD_VALUE 0x19
+#define THRESHOLD_VALUE 0x10
 
 
 // ---------------------- DRIVE FREQUENCY SETTINGS ----------------------
@@ -31,6 +35,7 @@ const int analogIn = A0;
 // #define DRIVE_FREQUENCY_TIMER_DIVIDER 120 // 66 kHz
 // #define DRIVE_FREQUENCY_TIMER_DIVIDER 80  // 100 kHz (e.g., Chrhartz DIY transducer)
 // #define DRIVE_FREQUENCY_TIMER_DIVIDER 52  // 151 kHz (Muebau transducer)
+// #define DRIVE_FREQUENCY_TIMER_DIVIDER 41 // 192 kHz
 // #define DRIVE_FREQUENCY_TIMER_DIVIDER 39  // 200 kHz (Raymarine CPT-S transducer)
 // #define DRIVE_FREQUENCY_TIMER_DIVIDER 36  // 216 kHz (mini transducer)
 // #define DRIVE_FREQUENCY_TIMER_DIVIDER 34  // 230 kHz (18mm 200kHz transducer from AliExpress)
@@ -50,6 +55,7 @@ const int analogIn = A0;
 // #define FILTER_FREQUENCY_REGISTER 0x18 // 151 kHz
 // #define FILTER_FREQUENCY_REGISTER 0x1E // 200 kHz
 
+float resolution = 1480 * 13.2e-6f / 2.0f * 100;
 
 byte misoBuf[2];  // SPI receive buffer
 byte inByteArr[2];  // SPI transmit buffer
@@ -63,7 +69,6 @@ int vDrv = 0;
 
 volatile bool detectedDepth = false;  // Condition flag
 volatile int depthDetectSample = 0;
-
 
 ISR(TIMER1_COMPA_vect)
 {
@@ -189,6 +194,34 @@ void loop()
 
   //int startTime = micros();
 
+  int sample_delay = 0;
+  if (ENABLE_DYNAMIC_RESOLUTION) {
+    // --- Adaptive resolution logic ---
+    // If no depth is detected, increase resolution (lower vertical resolution, longer range) up to a max threshold
+    float detectedDepthMeters = 0;
+    float newResolution = 0.0f;
+    if (detectedDepth) {
+      // Calculate detected depth in meters
+      detectedDepthMeters = depthDetectSample * (resolution / 100.0f);
+
+      // Set a target so the detected depth is always within ~80% of the range
+      float targetRangeMeters = detectedDepthMeters * 1.25f; // 25% headroom
+      float newResolution = (targetRangeMeters * 100.0f) / NUM_SAMPLES; // cm/sample
+    } else {
+      // No depth detected: increase resolution (lower vertical resolution, longer range)
+      float newResolution = resolution * 1.5f; // Increase by 50% each time
+    }
+
+    // Calculate delay for the new resolution
+    if (newResolution > 10) newResolution = 10; 
+    sample_delay = ((newResolution / 100.0f * 2.0f / 1480 - 13.2) * 1e6f); // microseconds
+    if (sample_delay <= 0) {
+      sample_delay = 0;
+      newResolution = 1480 * 13.2e-6f / 2.0f * 100;
+    }
+    resolution = newResolution;
+  }
+
   // Read analog values from A0
   sampleIndex = 0;
   for (sampleIndex = 0; sampleIndex < NUM_SAMPLES; sampleIndex++) {
@@ -198,12 +231,13 @@ void loop()
     if (sampleIndex == BLINDZONE_SAMPLE_END) {
       detectedDepth = false;
     }
+    if (sample_delay > 0) delayMicroseconds(sample_delay); // Set sample resolution
   }
   //int runTime = micros() - startTime;
 
   // Stop time-of-flight measurement
   tuss4470Write(0x1B, 0x00);
-  
+
   sendData();
 
   delay(10);
@@ -237,6 +271,14 @@ void sendData() {
   Serial.write(vDrvHigh);
   Serial.write(vDrvLow);
   checksum ^= vDrvHigh ^ vDrvLow;
+
+  // Resolution
+  int16_t res_scaled = resolution * 100;
+  uint8_t resHigh = res_scaled >> 8;
+  uint8_t resLow  = res_scaled & 0xFF;
+  Serial.write(resHigh);
+  Serial.write(resLow);
+  checksum ^= resHigh ^ resLow;
 
   // Analog samples directly from analogValues[]
   for (int i = 0; i < NUM_SAMPLES; i++) {
