@@ -17,6 +17,8 @@ let ySamples = Math.max(1, Math.floor(yRange / metersPerRow));
 let measuredDepth = 0;
 let maxMeasuredDepth = 0;
 let maxValue = 0;
+let lastMean = 128;
+let lastStd = 64;
 let ctx, imageData;
 
 function resizeCanvases() {
@@ -115,23 +117,31 @@ function drawCursorOverlay(y) {
     overlayCtx.stroke();
 }
 
-canvas.addEventListener('mousemove', function(e) {
+canvas.addEventListener('mousemove', function (e) {
     const y = e.clientY - overlayCanvas.getBoundingClientRect().top;
     const depthAtCursor = yPixelToDepth(y);
     cursorDepthLabel.textContent = `Cursor: ${depthAtCursor} m`;
     drawCursorOverlay(y);
 });
-canvas.addEventListener('mouseleave', function() {
+canvas.addEventListener('mouseleave', function () {
     cursorDepthLabel.textContent = 'Cursor: -- m';
     overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
 });
 
 // --- Spectrogram rendering ---
+/**
+ * Automatic gain adjustment: scale value using mean and std of most recent column.
+ * @param {number} value
+ * @returns {Array} RGB color
+ */
 function getColor(value) {
-    if (value > maxValue) {
-        maxValue = value;
-    }
-    return evaluate_cmap(value / 256, 'terrain');
+    // Clamp std to avoid division by zero
+    const std = lastStd > 1 ? lastStd : 1;
+    // Center and scale value
+    let scaled = (value - lastMean) / (2 * std);
+    // Clamp to [0,1]
+    scaled = Math.max(0, Math.min(1, scaled + 0.5));
+    return evaluate_cmap(scaled, 'terrain');
 }
 
 function shiftLeft(imageData) {
@@ -149,6 +159,15 @@ function shiftLeft(imageData) {
 }
 
 function insertColumn(values, depth) {
+    // Compute mean and std for automatic gain adjustment
+    const valid = values.filter(v => typeof v === 'number');
+    if (valid.length > 0) {
+        const mean = valid.reduce((a, b) => a + b, 0) / valid.length;
+        const std = Math.sqrt(valid.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / valid.length);
+        // Exponential smoothing for stability
+        lastMean = 0.2 * mean + 0.8 * lastMean;
+        lastStd = 0.2 * std + 0.8 * lastStd;
+    }
     shiftLeft(imageData);
     const x = width - 1;
     for (let y = 0; y < height; y++) {
@@ -175,27 +194,28 @@ function insertColumn(values, depth) {
 
 // --- WebSocket connection and events ---
 const ws = new WebSocket('ws://localhost:8000/ws');
-let lastSampleTime = null;
-let sampleIntervalMs = 100; // Default to 10Hz
-let sampleRateHz = 10;
-let smoothedSampleRateHz = 10;
-const SMOOTHING_ALPHA = 0.1; // Smoothing factor (0.0 = smooth, 1.0 = instant)
 
-function updateSampleRate() {
-    if (lastSampleTime) {
-        const now = Date.now();
-        sampleIntervalMs = now - lastSampleTime;
-        sampleRateHz = sampleIntervalMs > 0 ? 1000 / sampleIntervalMs : 0;
-        // Exponential smoothing
-        smoothedSampleRateHz = SMOOTHING_ALPHA * sampleRateHz + (1 - SMOOTHING_ALPHA) * smoothedSampleRateHz;
-        lastSampleTime = now;
-    } else {
-        lastSampleTime = Date.now();
-    }
-}
+// let lastSampleTime = null;
+// let sampleIntervalMs = 100; // Default to 10Hz
+// let sampleRateHz = 10;
+// let smoothedSampleRateHz = 10;
+// const SMOOTHING_ALPHA = 0.1; // Smoothing factor (0.0 = smooth, 1.0 = instant)
+
+// function updateSampleRate() {
+//     if (lastSampleTime) {
+//         const now = Date.now();
+//         sampleIntervalMs = now - lastSampleTime;
+//         sampleRateHz = sampleIntervalMs > 0 ? 1000 / sampleIntervalMs : 0;
+//         // Exponential smoothing
+//         smoothedSampleRateHz = SMOOTHING_ALPHA * sampleRateHz + (1 - SMOOTHING_ALPHA) * smoothedSampleRateHz;
+//         lastSampleTime = now;
+//     } else {
+//         lastSampleTime = Date.now();
+//     }
+// }
 
 ws.onmessage = (event) => {
-    updateSampleRate();
+    // updateSampleRate();
     const data = JSON.parse(event.data);
     if (data.measured_depth > maxMeasuredDepth) {
         maxMeasuredDepth = data.measured_depth;
@@ -260,7 +280,7 @@ function updateAxisLabels(depth) {
 }
 
 // --- Zoom controls ---
-document.getElementById('zoom-in').addEventListener('click', function() {
+document.getElementById('zoom-in').addEventListener('click', function () {
     if (yRangeIndex > 0) {
         updateVisualRange(yRangeIndex - 1);
         window.manualZoom = true;
@@ -268,7 +288,7 @@ document.getElementById('zoom-in').addEventListener('click', function() {
         updateAxisLabels();
     }
 });
-document.getElementById('zoom-out').addEventListener('click', function() {
+document.getElementById('zoom-out').addEventListener('click', function () {
     if (yRangeIndex < yRanges.length - 1) {
         updateVisualRange(yRangeIndex + 1);
         window.manualZoom = true;
