@@ -17,8 +17,8 @@ let ySamples = Math.max(1, Math.floor(yRange / metersPerRow));
 let measuredDepth = 0;
 let maxMeasuredDepth = 0;
 let maxValue = 0;
-let lastMean = 128;
-let lastStd = 64;
+let mean = 128;
+let std = 64;
 let ctx, imageData;
 
 function resizeCanvases() {
@@ -135,13 +135,11 @@ canvas.addEventListener('mouseleave', function () {
  * @returns {Array} RGB color
  */
 function getColor(value) {
-    // Clamp std to avoid division by zero
-    const std = lastStd > 1 ? lastStd : 1;
     // Center and scale value
-    let scaled = (value - lastMean) / (2 * std);
+    let scaled = (value - mean) / (2 * std);
     // Clamp to [0,1]
     scaled = Math.max(0, Math.min(1, scaled + 0.5));
-    return evaluate_cmap(scaled, 'terrain');
+    return evaluate_cmap(scaled, "{{ settings.colormap }}");
 }
 
 function shiftLeft(imageData) {
@@ -158,15 +156,20 @@ function shiftLeft(imageData) {
     }
 }
 
+let sum = 0;
+let count = 0;
+let diff_squared = 0;
+
 function insertColumn(values, depth) {
     // Compute mean and std for automatic gain adjustment
     const valid = values.filter(v => typeof v === 'number');
     if (valid.length > 0) {
-        const mean = valid.reduce((a, b) => a + b, 0) / valid.length;
-        const std = Math.sqrt(valid.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / valid.length);
-        // Exponential smoothing for stability
-        lastMean = 0.2 * mean + 0.8 * lastMean;
-        lastStd = 0.2 * std + 0.8 * lastStd;
+        sum = valid.reduce((a, b) => a + b, 0) + sum;
+        count += valid.length;
+        const mean = sum / count;
+
+        diff_squared += valid.map(v => (v - mean) ** 2).reduce((a, b) => a + b, 0);
+        const std = Math.sqrt(diff_squared / (count - 1));
     }
     shiftLeft(imageData);
     const x = width - 1;
@@ -193,7 +196,7 @@ function insertColumn(values, depth) {
 }
 
 // --- WebSocket connection and events ---
-const ws = new WebSocket('ws://localhost:8000/ws');
+const ws = new WebSocket('ws://localhost:8088/ws');
 
 // let lastSampleTime = null;
 // let sampleIntervalMs = 100; // Default to 10Hz
