@@ -6,10 +6,12 @@ class Medium(StrEnum):
     WATER = "water"
     AIR = "air"
 
+
 class NMEAOffset(StrEnum):
     ToKeel = "to_keel"
     ToSurface = "to_surface"
     ToTransducer = "to_transducer"
+
 
 speed_of_sound_map = {
     Medium.WATER: 1500,  # meters per second in water
@@ -49,7 +51,7 @@ class Settings(BaseModel):
             raise ValueError(f"Unsupported medium: {self.medium}")
 
         speed_of_sound = speed_of_sound_map[self.medium]
-        return speed_of_sound * 13.2 * 100 / 2 # cm per row (0.99 cm per row)
+        return speed_of_sound * 13.2 * 100 / 2  # cm per row (0.99 cm per row)
 
     @property
     def output_methods(self):

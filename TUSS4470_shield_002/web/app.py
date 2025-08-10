@@ -1,4 +1,3 @@
-import asyncio
 from contextlib import asynccontextmanager
 from depth_output import OutputManager
 from settings import Settings
@@ -37,10 +36,12 @@ echo_reader = EchoReader(
     depth_callback=output_manager.update,
 )
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     with echo_reader:
         yield
+
 
 app = FastAPI(lifespan=lifespan)
 templates = Jinja2Templates(directory="templates")

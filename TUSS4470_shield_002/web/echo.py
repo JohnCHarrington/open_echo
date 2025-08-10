@@ -12,7 +12,6 @@ from settings import Medium, Settings
 log = logging.getLogger("uvicorn")
 
 
-
 class EchoReader:
     def __init__(
         self,
@@ -49,7 +48,9 @@ class EchoReader:
             if header != b"\xaa":
                 continue  # Wait for the start byte
 
-            payload = await reader.readexactly(8 + 2 * self.settings.num_samples)  # Read payload
+            payload = await reader.readexactly(
+                8 + 2 * self.settings.num_samples
+            )  # Read payload
             checksum = await reader.readexactly(1)
 
             if len(payload) != 8 + 2 * self.settings.num_samples or len(checksum) != 1:
@@ -84,7 +85,7 @@ class EchoReader:
         return [port.device for port in serial.tools.list_ports.comports()][::-1]
 
     @staticmethod
-    async def wait_for_ack(reader, ack_byte=b'\xAC', timeout=2.0):
+    async def wait_for_ack(reader, ack_byte=b"\xac", timeout=2.0):
         start = time.monotonic()
         while time.monotonic() - start < timeout:
             try:
@@ -95,8 +96,12 @@ class EchoReader:
                 continue
         return False
 
-
-    async def update_arduino_settings(self, settings: Settings, writer: asyncio.StreamWriter, reader: asyncio.StreamReader):
+    async def update_arduino_settings(
+        self,
+        settings: Settings,
+        writer: asyncio.StreamWriter,
+        reader: asyncio.StreamReader,
+    ):
         log.info("Applying new settings to Arduino...")
         try:
             # Prepare settings packet
@@ -129,7 +134,7 @@ class EchoReader:
                 checksum ^= b & 0xFF
 
             packet.append(checksum)
-            
+
             # Send the packet three times to ensure it is received
             for _ in range(3):
                 writer.write(packet)
@@ -181,9 +186,7 @@ class EchoReader:
                 )
                 await self.update_arduino_settings(self.settings, writer, reader)
                 log.info("Connected to serial port: %s", str(self.settings.serial_port))
-                log.info(
-                    "Connected to serial port: %s", str(self.settings.serial_port)
-                )
+                log.info("Connected to serial port: %s", str(self.settings.serial_port))
                 while not self._restart_event.is_set():
                     await self.aread_echo(reader)
 

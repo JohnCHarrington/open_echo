@@ -27,7 +27,11 @@ class OutputManager:
         for output_class in self._output_classes:
             output_class.stop()
 
-        new_output_classes = [output_methods[method] for method in new_settings.output_methods if method in output_methods]
+        new_output_classes = [
+            output_methods[method]
+            for method in new_settings.output_methods
+            if method in output_methods
+        ]
         self._output_classes = [cls(self.settings) for cls in new_output_classes]
 
         for output_class in self._output_classes:
@@ -111,12 +115,7 @@ class SignalKOutput(OutputMethod):
         try:
             # Format as SignalK delta message for depth
             depth_m = self._current_value
-            values = [
-                {
-                    "path": "environment.depth.belowTransducer",
-                    "value": depth_m
-                }
-            ]
+            values = [{"path": "environment.depth.belowTransducer", "value": depth_m}]
 
             # Add water depth and depth below keel if settings are present
             transducer_depth = getattr(self.settings, "transducer_depth", None)
@@ -135,30 +134,30 @@ class SignalKOutput(OutputMethod):
             # - environment.depth.belowSurface (actual water depth)
             # - environment.depth.belowKeel (depth under keel)
             if transducer_depth > 0.0:
-                values.append({
-                    "path": "environment.depth.belowSurface",
-                    "value": depth_m + transducer_depth
-                })
-                if draft > 0.0:
-                    values.append({
-                        "path": "environment.depth.belowKeel",
-                        "value": depth_m + transducer_depth - draft
-                    })
-
-            delta = {
-                "updates": [
+                values.append(
                     {
-                        "values": values
+                        "path": "environment.depth.belowSurface",
+                        "value": depth_m + transducer_depth,
                     }
-                ]
-            }
+                )
+                if draft > 0.0:
+                    values.append(
+                        {
+                            "path": "environment.depth.belowKeel",
+                            "value": depth_m + transducer_depth - draft,
+                        }
+                    )
+
+            delta = {"updates": [{"values": values}]}
             import json
+
             await self._ws.send(json.dumps(delta))
         except Exception as e:
             print(f"SignalK send error: {e}")
             # Attempt reconnect next time
             if self._ws:
                 await self.stop()
+
 
 class NMEA0183Output(OutputMethod):
     def __init__(self, settings: Settings):
@@ -213,11 +212,15 @@ class NMEA0183Output(OutputMethod):
             self._writer.write(dbt_full.encode())
 
             nmea_offset = 0.0
-            if self.settings.nmea_offset is not NMEAOffset.ToTransducer: 
+            if self.settings.nmea_offset is not NMEAOffset.ToTransducer:
                 to_keel = self.settings.draft - self.settings.transducer_depth
                 to_surface = self.settings.transducer_depth
 
-                nmea_offset = -to_keel if self.settings.nmea_offset is NMEAOffset.ToKeel else to_surface
+                nmea_offset = (
+                    -to_keel
+                    if self.settings.nmea_offset is NMEAOffset.ToKeel
+                    else to_surface
+                )
 
             # DPT: Depth + offset (below surface)
             dpt_depth = depth_m + nmea_offset
@@ -231,6 +234,7 @@ class NMEA0183Output(OutputMethod):
             print(f"NMEA0183 TCP send error: {e}")
             # Attempt reconnect next time
             await self.stop()
+
 
 output_methods = {
     "signalk": SignalKOutput,
